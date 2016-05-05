@@ -40,7 +40,9 @@ import urlparse
 import sys
 import Consts
 import re
+import ssl
 import os
+import time
 
 atLeastPython26 = sys.hexversion >= 0x02060000
 atLeastPython3 = sys.hexversion >= 0x03000000
@@ -268,13 +270,27 @@ class Requester:
         else:
             assert cnx == "status"
             cnx = self.__httpsConnectionClass("status.github.com", 443)
-        cnx.request(
-            verb,
-            url,
-            input,
-            requestHeaders
-        )
-        response = cnx.getresponse()
+
+        maxretries = 30
+        retries = 0
+        poll = 60
+        response = None   
+        while not response and retries < maxretries:
+            try:
+                cnx.request(
+                    verb,
+                    url,
+                    input,
+                    requestHeaders
+                )
+                response = cnx.getresponse()
+            except ssl.SSLError as e:
+                print "Waiting %s seconds for a retry ..." % poll
+                retries += 1
+                time.sleep(poll)
+
+        if not response:
+            raise "Max retries exceeded and no response was obtained"
 
         status = response.status
         responseHeaders = dict((k.lower(), v) for k, v in response.getheaders())
