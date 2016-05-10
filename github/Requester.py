@@ -35,6 +35,7 @@
 import logging
 import httplib
 import base64
+import json
 import urllib
 import urlparse
 import sys
@@ -271,11 +272,11 @@ class Requester:
             assert cnx == "status"
             cnx = self.__httpsConnectionClass("status.github.com", 443)
 
-        maxretries = 30
+        maxretries = 1000
         retries = 0
-        poll = 60
         response = None   
         while not response and retries < maxretries:
+            #import epdb; epdb.st()
             try:
                 cnx.request(
                     verb,
@@ -284,10 +285,14 @@ class Requester:
                     requestHeaders
                 )
                 response = cnx.getresponse()
-            except ssl.SSLError as e:
-                print "Waiting %s seconds for a retry ..." % poll
+            except Exception as e:
+                print "__requestRaw error: %s" % e
+                #import epdb; epdb.st()
+                url_parts = url.split('?', 1)
+                secret = url_parts[-1]
+                self.__wait_for_rate_limit(input, requestHeaders, secret)
                 retries += 1
-                time.sleep(poll)
+                cnx = self.__createConnection()
 
         if not response:
             raise "Max retries exceeded and no response was obtained"
@@ -301,6 +306,44 @@ class Requester:
         self.__log(verb, url, requestHeaders, input, status, responseHeaders, output)
 
         return status, responseHeaders, output
+
+    def __wait_for_rate_limit(self, input, requestHeaders, secret):
+
+        # https://developer.github.com/v3/rate_limit/
+
+        maxretries = 1000
+        retries = 0
+        response = None   
+        poll = 60
+        rl_data = None
+        while not rl_data and retries < maxretries:
+            #import epdb; epdb.st()
+            try:
+                cnx = self.__createConnection()
+                cnx.request('GET', '/rate_limit?%s' % secret,
+                            input, requestHeaders)
+                rl_response = cnx.getresponse()
+                rl_data = rl_response.read()
+            except Exception as e:
+                print "__wait_for_rate_limit error: %s" % e
+                #print e
+                print "(ERROR) Sleeping for %s seconds ..." % poll
+                retries += 1
+                #import epdb; epdb.st()
+                time.sleep(poll)
+                cnx.timeout += 5
+
+        rl_data = json.loads(rl_data)
+        #import epdb; epdb.st()
+        if rl_data['rate']['remaining'] < 1:
+            time_left = time.time() - rl_data['rate']['reset']
+            time_left = int(time_left)
+            if time_left > 0.0:
+                print "(RATELIMIT) Sleeping for %s seconds ..." % time_left
+                #import epdb; epdb.st()
+                time.sleep(time_left)
+            else:
+                print "(RATELIMIT) Time left is negative. Continuing. " % time_left
 
     def __authenticate(self, url, requestHeaders, parameters):
         if self.__clientId and self.__clientSecret and "client_id=" not in url:
