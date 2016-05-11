@@ -272,6 +272,9 @@ class Requester:
             assert cnx == "status"
             cnx = self.__httpsConnectionClass("status.github.com", 443)
 
+        url_parts = url.split('?', 1)
+        secret = url_parts[-1]
+
         maxretries = 1000
         retries = 0
         response = None   
@@ -287,12 +290,24 @@ class Requester:
                 response = cnx.getresponse()
             except Exception as e:
                 print "__requestRaw error: %s" % e
-                #import epdb; epdb.st()
-                url_parts = url.split('?', 1)
-                secret = url_parts[-1]
                 self.__wait_for_rate_limit(input, requestHeaders, secret)
                 retries += 1
                 cnx = self.__createConnection()
+
+            if response:
+                #if "x-ratelimit-remaining" in .. and "x-ratelimit-limit" in ..:
+                responseHeaders = dict((k.lower(), v) for k, v in response.getheaders())
+                if 'x-ratelimit-remaining' in responseHeaders:
+                    if int(responseHeaders['x-ratelimit-remaining']) < 1:
+
+                        import pprint; pprint.pprint(responseHeaders)
+                        #import epdb; epdb.st()
+
+                        responseHeaders = None
+                        response = None
+                        self.__wait_for_rate_limit(input, requestHeaders, secret)
+                        retries += 1
+                        cnx = self.__createConnection()
 
         if not response:
             raise "Max retries exceeded and no response was obtained"
@@ -317,7 +332,6 @@ class Requester:
         poll = 60
         rl_data = None
         while not rl_data and retries < maxretries:
-            #import epdb; epdb.st()
             try:
                 cnx = self.__createConnection()
                 cnx.request('GET', '/rate_limit?%s' % secret,
@@ -329,21 +343,19 @@ class Requester:
                 #print e
                 print "(ERROR) Sleeping for %s seconds ..." % poll
                 retries += 1
-                #import epdb; epdb.st()
                 time.sleep(poll)
                 cnx.timeout += 5
 
         rl_data = json.loads(rl_data)
-        #import epdb; epdb.st()
         if rl_data['rate']['remaining'] < 1:
             time_left = time.time() - rl_data['rate']['reset']
             time_left = int(time_left)
+            time_left = abs(time_left)
             if time_left > 0.0:
                 print "(RATELIMIT) Sleeping for %s seconds ..." % time_left
-                #import epdb; epdb.st()
                 time.sleep(time_left)
             else:
-                print "(RATELIMIT) Time left is negative. Continuing. " % time_left
+                print "(RATELIMIT) Time left is negative (%s). Continuing. " % time_left
 
     def __authenticate(self, url, requestHeaders, parameters):
         if self.__clientId and self.__clientSecret and "client_id=" not in url:
