@@ -348,6 +348,7 @@ class Requester:
 
         rl_data = json.loads(rl_data)
         if rl_data['rate']['remaining'] < 1:
+            print "(RATELIMIT) reset: %s" % rl_data['rate']['reset']
             time_left = time.time() - rl_data['rate']['reset']
             time_left = int(time_left)
             time_left = abs(time_left)
