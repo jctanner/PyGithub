@@ -354,7 +354,13 @@ class Requester:
             time_left = abs(time_left)
             if time_left > 0.0:
                 print "(RATELIMIT) Sleeping for %s seconds ..." % time_left
-                time.sleep(time_left)
+                if time_left <= 60:
+                    time.sleep(time_left)
+                else:
+                    minutes = time_left / 60
+                    for m in reversed(xrange(0, minutes)):
+                        print "(RATELIMIT) %s minutes left" % m                        
+                        time.sleep(60)
             else:
                 print "(RATELIMIT) Time left is negative (%s). Continuing. " % time_left
 
